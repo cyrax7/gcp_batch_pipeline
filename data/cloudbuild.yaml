@@ -1,0 +1,65 @@
+logsBucket: gs://<YOUR_LOGS_BUCKET>/cloudbuild-logs
+serviceAccount: projects/<YOUR_PROJECT_ID>/serviceAccounts/<YOUR_SA>@<YOUR_PROJECT_ID>.iam.gserviceaccount.com
+
+substitutions:
+  _REGION: "us-central1"
+  _PROJECT_ID: "<YOUR_PROJECT_ID>"
+  _REPO: "<YOUR_AR_REPO_NAME>"
+  _CRONJOB_IMAGE: "gcp-batch-pipeline-data-generator"
+  _CLUSTER: "<YOUR_GKE_CLUSTER_NAME>"
+  _GCS_BUCKET: "<YOUR_GCS_BUCKET_NAME>"
+  _GCS_PREFIX: "synthetic_data"
+
+steps:
+  # ==============================================================================
+  # Phase 1: Build and Push Docker Image
+  # ==============================================================================
+
+  - name: "gcr.io/cloud-builders/docker"
+    id: Build Data Generator Image
+    waitFor: ["-"]
+    args:
+      - "build"
+      - "--no-cache"
+      - "-f"
+      - "data/Dockerfile"
+      - "-t"
+      - "${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_REPO}/${_CRONJOB_IMAGE}:$SHORT_SHA"
+      - "."
+
+  - name: "gcr.io/cloud-builders/docker"
+    id: Push Data Generator Image
+    waitFor: ["Build Data Generator Image"]
+    args:
+      - "push"
+      - "${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_REPO}/${_CRONJOB_IMAGE}:$SHORT_SHA"
+
+  # ==============================================================================
+  # Phase 2: Prepare Kubernetes Manifests
+  # ==============================================================================
+
+  - name: "gcr.io/cloud-builders/gcloud"
+    id: Update Manifests
+    waitFor: ["-"]
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        find k8s -type f -name '*.yaml' | xargs sed -i \
+          -e "s/{{SHORT_SHA}}/$SHORT_SHA/g" \
+          -e "s|{{CRONJOB_IMAGE_URI}}|${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_REPO}/${_CRONJOB_IMAGE}|g" \
+          -e "s/{{GCS_BUCKET}}/${_GCS_BUCKET}/g" \
+          -e "s/{{GCS_PREFIX}}/${_GCS_PREFIX}/g"
+
+  # ==============================================================================
+  # Phase 3: Deploy CronJob to GKE
+  # ==============================================================================
+
+  - name: "gcr.io/cloud-builders/kubectl"
+    id: Deploy Data Generator CronJob
+    waitFor: ["Push Data Generator Image", "Update Manifests"]
+    env:
+      - "CLOUDSDK_COMPUTE_REGION=${_REGION}"
+      - "CLOUDSDK_CONTAINER_CLUSTER=${_CLUSTER}"
+      - "CLOUDSDK_CORE_PROJECT=${_PROJECT_ID}"
+    args: ["apply", "-f", "k8s/"]

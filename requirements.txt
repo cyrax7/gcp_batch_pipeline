@@ -1,2 +1,6 @@
 pandas
 faker
+gcsfs
+google-cloud-storage
+flask
+gunicorn
