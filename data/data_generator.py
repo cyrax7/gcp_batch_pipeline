@@ -193,4 +193,9 @@ def generate():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
+    customers_df = generate_customers()
+    products_df = generate_products()
+    orders_df = generate_orders(customers=customers_df)
+    generate_order_items(orders=orders_df, products=products_df)
+    generate_transactions(orders=orders_df)
+    log.info("All data written to %s/ (date suffix: %s)", BASE_PATH, TODAY)

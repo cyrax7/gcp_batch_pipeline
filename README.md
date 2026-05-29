@@ -1,6 +1,6 @@
 # GCP Batch Data Pipeline
 
-A GCP batch pipeline that generates synthetic sales data daily and lands it in Google Cloud Storage. Built to run as a containerised Flask application deployed as a GKE CronJob, with CI/CD through Cloud Build.
+A GCP batch pipeline that generates synthetic sales data daily and lands it in Google Cloud Storage. Built to run as a containerised Flask application deployed on Cloud Run, with CI/CD through Cloud Build.
 
 ---
 
@@ -13,7 +13,7 @@ Cloud Build (CI/CD)
 Artifact Registry (Docker image)
        │
        ▼
-GKE CronJob (runs daily)
+Cloud Run (invoked via POST /generate)
        │
        ▼
 Flask App  ──── POST /generate ────▶  Data Generator
@@ -38,10 +38,6 @@ gcp_batch_pipeline/
 │   ├── data_generator.py     # Synthetic data generator + Flask app
 │   ├── Dockerfile            # Container image definition
 │   └── cloudbuild.yaml       # Cloud Build CI/CD pipeline
-│
-├── k8s/
-│   ├── deployment.yaml       # GKE CronJob manifest
-│   └── service.yaml          # Kubernetes ClusterIP service
 │
 ├── requirements.txt
 └── README.md
@@ -129,16 +125,14 @@ curl -X POST http://localhost:8080/generate
 
 ## Docker
 
-The Dockerfile uses the repo root as build context so it can reach both `requirements.txt` and `data/data_generator.py`.
-
 ```dockerfile
 FROM python:3.11-slim
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY data/data_generator.py main.py
+COPY data_generator.py main.py
 EXPOSE 8080
-CMD ["python", "main.py"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--timeout", "300", "--workers", "1", "main:app"]
 ```
 
 ### Build and run locally
@@ -156,68 +150,48 @@ docker run -p 8080:8080 \
 
 ## Cloud Build CI/CD (`data/cloudbuild.yaml`)
 
-Triggered on every push. Runs three sequential phases.
+Triggered on every push. Runs two sequential phases.
 
 ### Phase 1 — Build & Push
 
-Builds the Docker image from `data/Dockerfile` with the repo root as context and pushes it to Artifact Registry tagged with `$SHORT_SHA`.
+Builds the Docker image from `data/Dockerfile` and pushes it to Artifact Registry tagged with `$SHORT_SHA`.
 
 ```
 us-central1-docker.pkg.dev/<PROJECT_ID>/<REPO>/gcp-batch-pipeline-data-generator:<SHORT_SHA>
 ```
 
-### Phase 2 — Prepare Manifests
+### Phase 2 — Deploy to Cloud Run
 
-Runs `sed` across all `k8s/*.yaml` files to replace placeholders with live values before deployment.
+Deploys the image to Cloud Run with the following configuration:
 
-| Placeholder | Replaced with |
+| Setting | Value |
 |---|---|
-| `{{SHORT_SHA}}` | Git commit short SHA |
-| `{{CRONJOB_IMAGE_URI}}` | Full Artifact Registry image path |
-| `{{GCS_BUCKET}}` | Value of `_GCS_BUCKET` substitution |
-| `{{GCS_PREFIX}}` | Value of `_GCS_PREFIX` substitution |
+| Platform | managed |
+| Authentication | `--no-allow-unauthenticated` |
+| Memory | 1Gi |
+| CPU | 1 |
+| Timeout | 540s |
+| Max instances | 1 |
+| Concurrency | 1 |
 
-### Phase 3 — Deploy to GKE
+### Configuration
 
-Runs `kubectl apply -f k8s/` against the configured cluster.
-
-### Required Substitutions
-
-Before triggering a build, fill in the following values in `data/cloudbuild.yaml`:
+Before triggering a build, fill in the placeholders in `data/cloudbuild.yaml`:
 
 ```yaml
+logsBucket: gs://YOUR_GCS_BUCKET/cloudbuild-logs
+serviceAccount: projects/YOUR_PROJECT_ID/serviceAccounts/YOUR_SERVICE_ACCOUNT_NAME@YOUR_PROJECT_ID.iam.gserviceaccount.com
+
 substitutions:
   _REGION: "us-central1"
-  _PROJECT_ID: "<YOUR_PROJECT_ID>"
-  _REPO: "<YOUR_AR_REPO_NAME>"
-  _CLUSTER: "<YOUR_GKE_CLUSTER_NAME>"
-  _GCS_BUCKET: "<YOUR_GCS_BUCKET_NAME>"
+  _PROJECT_ID: "YOUR_PROJECT_ID"
+  _REPO: "YOUR_AR_REPO_NAME"
+  _SERVICE_NAME: "gcp-batch-pipeline-data-generator"
+  _GCS_BUCKET: "YOUR_GCS_BUCKET"
   _GCS_PREFIX: "synthetic_data"
 ```
 
-Also update the top-level `logsBucket` and `serviceAccount` fields.
-
----
-
-## Kubernetes Resources
-
-### CronJob (`k8s/deployment.yaml`)
-
-| Field | Value |
-|---|---|
-| Schedule | `0 1 * * *` (daily at 01:00 UTC) |
-| Concurrency | `Forbid` (no overlapping runs) |
-| Restart policy | `OnFailure` |
-| Backoff limit | 2 retries |
-| CPU request / limit | 250m / 500m |
-| Memory request / limit | 512Mi / 1Gi |
-| Service account | `data-generator-ksa` |
-
-The `data-generator-ksa` Kubernetes service account must be bound to a GCP service account with `roles/storage.objectCreator` on the target GCS bucket via Workload Identity.
-
-### Service (`k8s/service.yaml`)
-
-`ClusterIP` service that routes port `80` to the Flask container's port `8080`. Allows other pods in the cluster to call `/health` and `/generate` without exposing the app externally.
+Also replace `YOUR_SERVICE_ACCOUNT_NAME` in the `--service-account` flag of the deploy step.
 
 ---
 
@@ -225,6 +199,7 @@ The `data-generator-ksa` Kubernetes service account must be bound to a GCP servi
 
 | Principal | Role | Scope |
 |---|---|---|
-| Cloud Build service account | `roles/container.developer` | GKE cluster |
+| Cloud Build service account | `roles/run.admin` | Cloud Run service |
 | Cloud Build service account | `roles/artifactregistry.writer` | Artifact Registry repo |
-| `data-generator-ksa` (via Workload Identity) | `roles/storage.objectCreator` | GCS bucket |
+| Cloud Build service account | `roles/iam.serviceAccountUser` | Cloud Run runtime service account |
+| Cloud Run runtime service account | `roles/storage.objectCreator` | GCS bucket |

@@ -5,10 +5,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY data/data_generator.py main.py
+COPY data_generator.py main.py
 
 EXPOSE 8080
-
-# ✅ Run cron-style job
-CMD ["python", "data_generator.py"]
-
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--timeout", "300", "--workers", "1", "main:app"]

@@ -1,13 +1,12 @@
-logsBucket: gs://<YOUR_LOGS_BUCKET>/cloudbuild-logs
-serviceAccount: projects/<YOUR_PROJECT_ID>/serviceAccounts/<YOUR_SA>@<YOUR_PROJECT_ID>.iam.gserviceaccount.com
+logsBucket: gs://YOUR_GCS_BUCKET/cloudbuild-logs
+serviceAccount: projects/YOUR_PROJECT_ID/serviceAccounts/YOUR_SERVICE_ACCOUNT_NAME@YOUR_PROJECT_ID.iam.gserviceaccount.com
 
 substitutions:
   _REGION: "us-central1"
-  _PROJECT_ID: "<YOUR_PROJECT_ID>"
-  _REPO: "<YOUR_AR_REPO_NAME>"
-  _CRONJOB_IMAGE: "gcp-batch-pipeline-data-generator"
-  _CLUSTER: "<YOUR_GKE_CLUSTER_NAME>"
-  _GCS_BUCKET: "<YOUR_GCS_BUCKET_NAME>"
+  _PROJECT_ID: "YOUR_PROJECT_ID"
+  _REPO: "YOUR_AR_REPO_NAME"
+  _SERVICE_NAME: "gcp-batch-pipeline-data-generator"
+  _GCS_BUCKET: "YOUR_GCS_BUCKET"
   _GCS_PREFIX: "synthetic_data"
 
 steps:
@@ -22,9 +21,9 @@ steps:
       - "build"
       - "--no-cache"
       - "-f"
-      - "data/Dockerfile"
+      - "Dockerfile"
       - "-t"
-      - "${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_REPO}/${_CRONJOB_IMAGE}:$SHORT_SHA"
+      - "${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:$SHORT_SHA"
       - "."
 
   - name: "gcr.io/cloud-builders/docker"
@@ -32,34 +31,27 @@ steps:
     waitFor: ["Build Data Generator Image"]
     args:
       - "push"
-      - "${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_REPO}/${_CRONJOB_IMAGE}:$SHORT_SHA"
+      - "${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:$SHORT_SHA"
 
   # ==============================================================================
-  # Phase 2: Prepare Kubernetes Manifests
+  # Phase 2: Deploy to Cloud Run
   # ==============================================================================
 
   - name: "gcr.io/cloud-builders/gcloud"
-    id: Update Manifests
-    waitFor: ["-"]
-    entrypoint: "bash"
+    id: Deploy to Cloud Run
+    waitFor: ["Push Data Generator Image"]
     args:
-      - "-c"
-      - |
-        find k8s -type f -name '*.yaml' | xargs sed -i \
-          -e "s/{{SHORT_SHA}}/$SHORT_SHA/g" \
-          -e "s|{{CRONJOB_IMAGE_URI}}|${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_REPO}/${_CRONJOB_IMAGE}|g" \
-          -e "s/{{GCS_BUCKET}}/${_GCS_BUCKET}/g" \
-          -e "s/{{GCS_PREFIX}}/${_GCS_PREFIX}/g"
-
-  # ==============================================================================
-  # Phase 3: Deploy CronJob to GKE
-  # ==============================================================================
-
-  - name: "gcr.io/cloud-builders/kubectl"
-    id: Deploy Data Generator CronJob
-    waitFor: ["Push Data Generator Image", "Update Manifests"]
-    env:
-      - "CLOUDSDK_COMPUTE_REGION=${_REGION}"
-      - "CLOUDSDK_CONTAINER_CLUSTER=${_CLUSTER}"
-      - "CLOUDSDK_CORE_PROJECT=${_PROJECT_ID}"
-    args: ["apply", "-f", "k8s/"]
+      - "run"
+      - "deploy"
+      - "${_SERVICE_NAME}"
+      - "--image=${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:$SHORT_SHA"
+      - "--region=${_REGION}"
+      - "--platform=managed"
+      - "--no-allow-unauthenticated"
+      - "--service-account=YOUR_SERVICE_ACCOUNT_NAME@${_PROJECT_ID}.iam.gserviceaccount.com"
+      - "--set-env-vars=GCS_BUCKET=${_GCS_BUCKET},GCS_PREFIX=${_GCS_PREFIX}"
+      - "--memory=1Gi"
+      - "--cpu=1"
+      - "--timeout=540"
+      - "--max-instances=1"
+      - "--concurrency=1"
