@@ -1,0 +1,21 @@
+{
+  "project_id": "YOUR_GCP_PROJECT_ID",
+  "region": "us-central1",
+  "zone": "us-central1-a",
+  "cluster_name": "YOUR_DATAPROC_CLUSTER_NAME",
+  "gcs_bucket": "YOUR_GCS_BUCKET",
+  "gcs_prefix": "synthetic_data",
+  "bq_dataset": "YOUR_BQ_DATASET",
+  "subnetwork": "projects/YOUR_GCP_PROJECT_ID/regions/us-central1/subnetworks/YOUR_VPC_SUBNET",
+  "service_account": "your-pipeline-service-account@YOUR_GCP_PROJECT_ID.iam.gserviceaccount.com",
+  "pyspark_run_all": "gs://YOUR_GCS_BUCKET/pyspark/run_all.py",
+  "pyspark_py_files": [
+    "gs://YOUR_GCS_BUCKET/pyspark/utils.py",
+    "gs://YOUR_GCS_BUCKET/pyspark/order_summary.py",
+    "gs://YOUR_GCS_BUCKET/pyspark/monthly_sales.py",
+    "gs://YOUR_GCS_BUCKET/pyspark/monthly_performance.py",
+    "gs://YOUR_GCS_BUCKET/pyspark/customer_profile_summary.py",
+    "gs://YOUR_GCS_BUCKET/pyspark/customer_transactions.py",
+    "gs://YOUR_GCS_BUCKET/pyspark/customer_retention.py"
+  ]
+}
