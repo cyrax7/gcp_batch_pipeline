@@ -17,5 +17,24 @@
     "gs://YOUR_GCS_BUCKET/pyspark/customer_profile_summary.py",
     "gs://YOUR_GCS_BUCKET/pyspark/customer_transactions.py",
     "gs://YOUR_GCS_BUCKET/pyspark/customer_retention.py"
-  ]
+  ],
+
+  "master_num_instances": 1,
+  "master_machine_type": "n1-standard-4",
+  "master_disk_size_gb": 50,
+  "worker_num_instances": 2,
+  "worker_machine_type": "n1-standard-4",
+  "worker_disk_size_gb": 50,
+  "dataproc_image_version": "2.1-debian11",
+  "spark_bq_package": "com.google.cloud.spark:spark-bigquery-with-dependencies_2.12:0.36.1",
+
+  "dag_owner": "data-engineering",
+  "dag_retries": 1,
+  "dag_retry_delay_minutes": 5,
+  "dag_schedule_interval": "30 20 * * *",
+  "dag_start_date": "2026-06-01",
+
+  "sensor_file": "orders.csv",
+  "sensor_poke_interval": 60,
+  "sensor_timeout": 3600
 }
