@@ -1,0 +1,123 @@
+logsBucket: gs://${_GCS_BUCKET}/cloudbuild-logs
+serviceAccount: projects/${_PROJECT_ID}/serviceAccounts/${_SERVICE_ACCOUNT}@${_PROJECT_ID}.iam.gserviceaccount.com
+
+substitutions:
+  _REGION: "YOUR_GCP_REGION"
+  _PROJECT_ID: "YOUR_GCP_PROJECT_ID"
+  _REPO: "data-pipeline-images"
+  _GCS_BUCKET: "YOUR_GCS_BUCKET"
+  _SERVICE_ACCOUNT: "YOUR_SERVICE_ACCOUNT_NAME"
+
+  # ── data_generator service ──────────────────────────────────────────────────
+  _DATA_GEN_SERVICE: "gcp-batch-pipeline-data-generator"
+  _DATA_GEN_PREFIX: "synthetic_data"
+
+  # ── pyspark jobs ────────────────────────────────────────────────────────────
+  _PYSPARK_PREFIX: "pyspark"
+  _BQ_DATASET: "YOUR_BQ_DATASET"
+
+  # ── cloud composer (airflow) ─────────────────────────────────────────────
+  _COMPOSER_DAGS_BUCKET: "gs://YOUR_COMPOSER_BUCKET/dags"
+
+  # ── cloud run resource config ────────────────────────────────────────────
+  _CR_MEMORY: "1Gi"
+  _CR_CPU: "1"
+  _CR_TIMEOUT: "540"
+  _CR_MAX_INSTANCES: "1"
+  _CR_CONCURRENCY: "1"
+
+steps:
+  # ============================================================================
+  # Phase 1 – Build
+  # ============================================================================
+
+  - name: "gcr.io/cloud-builders/docker"
+    id: Build Data Generator Image
+    waitFor: ["-"]
+    args:
+      - "build"
+      - "--no-cache"
+      - "-f"
+      - "data_generator/Dockerfile"
+      - "-t"
+      - "${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_REPO}/${_DATA_GEN_SERVICE}:$SHORT_SHA"
+      - "data_generator/"
+
+  # ============================================================================
+  # Phase 2 – Push
+  # ============================================================================
+
+  - name: "gcr.io/cloud-builders/docker"
+    id: Push Data Generator Image
+    waitFor: ["Build Data Generator Image"]
+    args:
+      - "push"
+      - "${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_REPO}/${_DATA_GEN_SERVICE}:$SHORT_SHA"
+
+  # ============================================================================
+  # Phase 3 – Deploy
+  # ============================================================================
+
+  - name: "gcr.io/cloud-builders/gcloud"
+    id: Deploy Data Generator
+    waitFor: ["Push Data Generator Image"]
+    args:
+      - "run"
+      - "deploy"
+      - "${_DATA_GEN_SERVICE}"
+      - "--image=${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_REPO}/${_DATA_GEN_SERVICE}:$SHORT_SHA"
+      - "--region=${_REGION}"
+      - "--platform=managed"
+      - "--no-allow-unauthenticated"
+      - "--service-account=${_SERVICE_ACCOUNT}@${_PROJECT_ID}.iam.gserviceaccount.com"
+      - "--set-env-vars=GCS_BUCKET=${_GCS_BUCKET},GCS_PREFIX=${_DATA_GEN_PREFIX}"
+      - "--memory=${_CR_MEMORY}"
+      - "--cpu=${_CR_CPU}"
+      - "--timeout=${_CR_TIMEOUT}"
+      - "--max-instances=${_CR_MAX_INSTANCES}"
+      - "--concurrency=${_CR_CONCURRENCY}"
+
+  # ============================================================================
+  # Phase 4 – Upload PySpark scripts to GCS
+  # ============================================================================
+
+  - name: "gcr.io/cloud-builders/gsutil"
+    id: Upload PySpark Scripts
+    waitFor: ["-"]
+    args:
+      - "-m"
+      - "cp"
+      - "pyspark/utils.py"
+      - "pyspark/run_all.py"
+      - "pyspark/order_summary.py"
+      - "pyspark/monthly_sales.py"
+      - "pyspark/monthly_performance.py"
+      - "pyspark/customer_profile_summary.py"
+      - "pyspark/customer_transactions.py"
+      - "pyspark/customer_retention.py"
+      - "gs://${_GCS_BUCKET}/${_PYSPARK_PREFIX}/"
+
+  # ============================================================================
+  # Phase 5 – Upload Airflow DAG to Cloud Composer
+  # ============================================================================
+
+  - name: "gcr.io/cloud-builders/gsutil"
+    id: Upload Airflow DAG
+    waitFor: ["-"]
+    args:
+      - "cp"
+      - "airflow/sales_pipeline_dag.py"
+      - "${_COMPOSER_DAGS_BUCKET}/"
+
+  # ============================================================================
+  # Phase 6 – Upload pipeline config to GCS
+  # ============================================================================
+
+  - name: "gcr.io/cloud-builders/gcloud"
+    id: Upload Pipeline Config
+    waitFor: ["Upload PySpark Scripts"]
+    args:
+      - "storage"
+      - "cp"
+      - "config/config.json"
+      - "gs://${_GCS_BUCKET}/config/config.json"
