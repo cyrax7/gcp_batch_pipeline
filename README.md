@@ -95,6 +95,23 @@ This is a complete, end-to-end batch data engineering project built entirely on 
 
 ---
 
+## Airflow DAG
+
+The `sales_pipeline_dag` is composed of four tasks wired in a linear chain. Below is a screenshot of the DAG as it appears in the Cloud Composer (Airflow) UI:
+
+![Airflow DAG — sales_pipeline_dag](docs/airflow_dag.png)
+
+| Task | Operator | Purpose |
+|---|---|---|
+| `sense_source_data_in_gcs` | `GCSObjectExistenceSensorAsync` | Waits for `orders.csv` to confirm data generation is complete |
+| `create_dataproc_cluster` | `DataprocCreateClusterOperator` | Provisions an ephemeral Dataproc cluster (`use_if_exists=True`) |
+| `run_all_transforms` | `DataprocSubmitJobOperator` | Submits `run_all.py` — runs all 6 PySpark transforms in one Spark session |
+| `delete_dataproc_cluster` | `DataprocDeleteClusterOperator` | Tears down the cluster (`trigger_rule=ALL_DONE` — runs even on failure) |
+
+All operators use `deferrable=True` to release the Airflow worker slot during long Dataproc waits.
+
+---
+
 ## Tech stack
 
 | Layer | Technology |
