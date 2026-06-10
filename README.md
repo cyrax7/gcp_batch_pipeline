@@ -37,61 +37,8 @@ This is a complete, end-to-end batch data engineering project built entirely on 
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        ORCHESTRATION LAYER                          │
-│                   Cloud Scheduler (daily 01:00 IST)                 │
-└────────────────────────────┬────────────────────────────────────────┘
-                             │ triggers
-                             ▼
-┌────────────────────────────────────────────────────────────────────┐
-│                    DATA INGESTION LAYER                             │
-│   Cloud Run (Flask)  ──►  Cloud Storage (GCS)                      │
-│   Generates 5 synthetic CSVs and writes them to GCS                │
-│   customers · products · orders · order_items · transactions       │
-└────────────────────────────┬───────────────────────────────────────┘
-                             │ files land in GCS
-                             ▼
-┌────────────────────────────────────────────────────────────────────┐
-│                    WORKFLOW LAYER                                   │
-│   Cloud Composer (Airflow DAG — sales_pipeline_dag)                │
-│                                                                    │
-│   sense_source_data_in_gcs                                         │
-│          │                                                         │
-│   create_dataproc_cluster                                          │
-│          │                                                         │
-│   run_all_transforms  ◄── single PySpark job, 6 transforms        │
-│          │                                                         │
-│   delete_dataproc_cluster  (trigger_rule=ALL_DONE)                 │
-└────────────────────────────┬───────────────────────────────────────┘
-                             │
-                             ▼
-┌────────────────────────────────────────────────────────────────────┐
-│                    PROCESSING LAYER                                 │
-│   Cloud Dataproc (ephemeral PySpark cluster)                       │
-│   run_all.py — 6 transforms in a single shared Spark session       │
-│   order_summary · monthly_sales · monthly_performance              │
-│   customer_profile_summary · customer_transactions · retention     │
-└────────────────────────────┬───────────────────────────────────────┘
-                             │
-                             ▼
-┌────────────────────────────────────────────────────────────────────┐
-│                    STORAGE LAYER                                    │
-│   BigQuery — 6 analytical tables, DAY-partitioned by ingestion_date│
-└────────────────────────────┬───────────────────────────────────────┘
-                             │
-                             ▼
-┌────────────────────────────────────────────────────────────────────┐
-│                    VISUALISATION LAYER                              │
-│   Looker Studio  /  Power BI Desktop                               │
-└────────────────────────────────────────────────────────────────────┘
 
-         CI/CD: Cloud Build triggers on every git push
-         ├── Builds & deploys Cloud Run image
-         ├── Uploads PySpark scripts to GCS
-         ├── Syncs Airflow DAG to Composer
-         └── Uploads pipeline config to GCS
-```
+![Architecture Diagram](docs/batch_pipeline.jpeg)
 
 ---
 
@@ -99,7 +46,7 @@ This is a complete, end-to-end batch data engineering project built entirely on 
 
 The `sales_pipeline_dag` is composed of four tasks wired in a linear chain. Below is a screenshot of the DAG as it appears in the Cloud Composer (Airflow) UI:
 
-![Airflow DAG — sales_pipeline_dag](docs/airflow_dag.png)
+![Airflow DAG — sales_pipeline_dag](docs/Airflow%20Dag.png)
 
 | Task | Operator | Purpose |
 |---|---|---|
