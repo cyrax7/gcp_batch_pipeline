@@ -346,20 +346,6 @@ Suggested charts:
 
 ---
 
-## Troubleshooting
-
-| Symptom | Root cause | Fix |
-|---|---|---|
-| DAG shows `404` for `config.json` | Config not uploaded to GCS yet | Run `gsutil cp config/config.json gs://YOUR_GCS_BUCKET/config/config.json` |
-| Dataproc cluster fails — "VM to VM communications blocked" | Missing egress firewall rule | Create `allow-dataproc-internal-egress` (Egress, `10.0.0.0/8`, allow all) |
-| Airflow tasks fail before submitting to Dataproc | Worker concurrency limit hit | Use the single `run_all.py` job instead of 6 parallel tasks |
-| Cloud Build fails with 401 on `gsutil` step | Auth not propagated to parallel step | Use `gcr.io/cloud-builders/gcloud` with `gcloud storage cp` instead |
-| PySpark `FileNotFoundError` for CSV | Script looking for date-suffixed filenames | All CSVs use fixed names (`customers.csv`, not `customers_YYYYMMDD.csv`) |
-| Airflow task killed with SQL heartbeat error mid-run | Cloud SQL proxy drops during long Dataproc wait | Set `deferrable=True` on all Dataproc operators |
-| Cloud Run `/generate` returns 500 | `GCS_BUCKET` env var not set | Verify `--set-env-vars=GCS_BUCKET=...` in the Cloud Build deploy step |
-
----
-
 ## GCP resources reference
 
 All values are configured in `config/config.json` and `cloudbuild.yaml`:
